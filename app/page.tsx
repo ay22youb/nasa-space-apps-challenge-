@@ -2,10 +2,17 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import CityMap from '@/components/CityMap';
+import dynamic from 'next/dynamic';
 import Controls from '@/components/Controls';
-import AssistantDock from '@/components/AssistantDock';
 import { Sun, Moon } from 'lucide-react';
+
+// ⛔️ Import these via next/dynamic to avoid SSR "window is not defined"
+const CityMap = dynamic(() => import('@/components/CityMap'), { ssr: false });
+const AssistantDock = dynamic(() => import('@/components/AssistantDock'), { ssr: false });
+
+// Prevent static prerendering of this page (extra safety)
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 type Feature = { type: 'Feature'; properties: Record<string, any>; geometry: { type: string; coordinates: any } };
 type FeatureCollection = { type: 'FeatureCollection'; features: Feature[] };
@@ -48,7 +55,7 @@ export default function Page() {
     { id: 'investor', label: '🏗️ Investor / Planner' },
   ];
 
-  // Load data
+  // Load data (client-side only)
   useEffect(() => {
     const load = async () => {
       const [n, b, s, h, t] = await Promise.all([
@@ -135,7 +142,11 @@ export default function Page() {
             <h2 className="text-xl font-bold mb-2">Select Your Purpose</h2>
             <p className="text-gray-500 dark:text-gray-400 mb-4">What is your purpose for using the dashboard today?</p>
             <div className="flex flex-col gap-3">
-              {personas.map(p => (
+              {[
+                { id: 'citizen', label: '👤 Normal Citizen' },
+                { id: 'health', label: '❤️ Health-Conscious Citizen' },
+                { id: 'investor', label: '🏗️ Investor / Planner' },
+              ].map(p => (
                 <button key={p.id} onClick={() => setPersona(p.id)} className="btn py-2 font-semibold hover:scale-[1.03] transition-transform">
                   {p.label}
                 </button>
@@ -170,7 +181,7 @@ export default function Page() {
             onQuery={setQuery}
             onGoToCity={goToCity}
             show={show}
-            onToggle={toggle}
+            onToggle={k => toggle(k)}
             intensity={intensity}
             onIntensity={setIntensity}
             onPlantTrees={plantTrees}
@@ -189,7 +200,7 @@ export default function Page() {
               show={show}
               intensity={intensity}
               onZoneDrawn={(poly) => {
-                // For now just log; you can store it and filter stats within polygon later
+                // For now just log; you can store and filter stats within the polygon later
                 console.log("Zone drawn:", poly);
               }}
             />
