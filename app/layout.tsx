@@ -1,5 +1,5 @@
 import "./globals.css";
-import { ReactNode, useState, useEffect } from "react";
+import { ReactNode } from "react";
 
 export const metadata = {
   title: "Digital Twin City — Prototype",
@@ -10,10 +10,16 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Leaflet CSS */}
+        {/* Leaflet core CSS */}
         <link
           rel="stylesheet"
           href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          crossOrigin=""
+        />
+        {/* Leaflet Draw CSS */}
+        <link
+          rel="stylesheet"
+          href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"
           crossOrigin=""
         />
       </head>
