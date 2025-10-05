@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, HeartPulse, Building2, Car, Trees, ThermometerSun } from 'lucide-react';
+import { Search, Building2, Car, Trees, ThermometerSun } from 'lucide-react';
 
 type Show = {
   noise: boolean;
@@ -12,10 +12,12 @@ type Show = {
   heatmap: boolean;
 };
 
+type Persona = 'citizen' | 'health' | 'investor' | null;
+
 type Props = {
   // persona
-  persona: 'citizen' | 'health' | 'investor' | null;
-  onPersonaChange: (p: 'citizen' | 'health' | 'investor') => void;
+  persona: Persona;
+  onPersonaChange: (p: Exclude<Persona, null>) => void;
 
   // search
   query: string;
@@ -32,17 +34,33 @@ type Props = {
   onPlantTrees: () => void;
   onCalmTraffic: () => void;
   onReset: () => void;
+
+  // snapshot
+  healthScore: number | null;
+  prevScore: number | null;
 };
+
+function gradeFromScore(score: number | null) {
+  if (score === null || Number.isNaN(score)) return { label: '—', color: 'bg-gray-300 text-gray-800 dark:bg-gray-700 dark:text-gray-100' };
+  if (score >= 80) return { label: 'Green (Healthy)', color: 'bg-green-200 text-green-800 dark:bg-green-900/40 dark:text-green-300' };
+  if (score >= 60) return { label: 'Yellow (OK)', color: 'bg-yellow-200 text-yellow-900 dark:bg-yellow-900/40 dark:text-yellow-300' };
+  if (score >= 40) return { label: 'Orange (Caution)', color: 'bg-orange-200 text-orange-900 dark:bg-orange-900/40 dark:text-orange-300' };
+  return { label: 'Red (Unhealthy)', color: 'bg-red-200 text-red-900 dark:bg-red-900/40 dark:text-red-300' };
+}
 
 export default function Controls({
   persona, onPersonaChange,
   query, onQuery, onGoToCity,
   show, onToggle,
-  intensity, onIntensity, onPlantTrees, onCalmTraffic, onReset
+  intensity, onIntensity, onPlantTrees, onCalmTraffic, onReset,
+  healthScore, prevScore
 }: Props) {
 
   const [searching, setSearching] = useState(false);
   const go = async () => { setSearching(true); await onGoToCity(query); setSearching(false); };
+
+  const g = gradeFromScore(healthScore);
+  const delta = healthScore !== null && prevScore !== null ? healthScore - prevScore : null;
 
   return (
     <div className="card p-4 space-y-5">
@@ -53,24 +71,56 @@ export default function Controls({
           <button
             className={`btn py-2 ${persona === 'citizen' ? 'bg-black/5 dark:bg-white/10' : ''}`}
             onClick={() => onPersonaChange('citizen')}
-            title="General exploration"
           >
             👤 Citizen
           </button>
           <button
             className={`btn py-2 ${persona === 'health' ? 'bg-black/5 dark:bg-white/10' : ''}`}
             onClick={() => onPersonaChange('health')}
-            title="Lower noise & heat priority"
           >
             ❤️ Health
           </button>
           <button
             className={`btn py-2 ${persona === 'investor' ? 'bg-black/5 dark:bg-white/10' : ''}`}
             onClick={() => onPersonaChange('investor')}
-            title="Feasibility focus"
           >
             🏗️ Investor
           </button>
+        </div>
+      </section>
+
+      {/* HEALTH & AIR SNAPSHOT */}
+      <section>
+        <h3 className="font-semibold mb-2">Health & Air Snapshot</h3>
+        <div className={`rounded-xl px-4 py-3 ${g.color} flex items-center justify-between`}>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-white/60 dark:bg-black/20 flex items-center justify-center font-bold">
+              {healthScore ?? '—'}
+            </div>
+            <div>
+              <div className="text-sm leading-tight">Current City Score</div>
+              <div className="text-xs opacity-80">{g.label}</div>
+            </div>
+          </div>
+          <div className="text-xs">
+            {delta !== null && delta !== 0 ? (
+              <span className={delta > 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}>
+                {delta > 0 ? '▲ +' : '▼ '}{Math.abs(delta)}
+              </span>
+            ) : <span className="opacity-60">—</span>}
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="mt-2 text-xs grid grid-cols-2 gap-x-3 gap-y-1">
+          <div className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-full bg-green-500" /> 80–100 Healthy</div>
+          <div className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400" /> 60–79 OK</div>
+          <div className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-500" /> 40–59 Caution</div>
+          <div className="flex items-center gap-2"><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" /> 0–39 Unhealthy</div>
+        </div>
+
+        <div className="text-[11px] mt-1 opacity-70">
+          *Prototype heuristic: combines Noise (inverse air proxy) + Heat Vulnerability. Run simulations to see score change.
         </div>
       </section>
 
@@ -127,7 +177,7 @@ export default function Controls({
         </div>
       </section>
 
-      {/* Persona tip */}
+      {/* Persona tips */}
       {persona === 'health' && (
         <div className="text-xs text-rose-400/90">
           Tip: Focus on low <b>Noise</b> + low <b>Heat</b> areas. Use the heatmap and draw a zone.
