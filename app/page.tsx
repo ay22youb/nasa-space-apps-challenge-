@@ -6,13 +6,15 @@ import NextDynamic from 'next/dynamic';
 import Controls from '@/components/Controls';
 import { Sun, Moon } from 'lucide-react';
 
-// Load Leaflet-based components only in the browser (avoid SSR/window errors)
+// ✅ Load Leaflet pieces only in the browser
 const CityMap = NextDynamic(() => import('@/components/CityMap'), { ssr: false });
 const AssistantDock = NextDynamic(() => import('@/components/AssistantDock'), { ssr: false });
 
-// Force this route to be dynamic and skip ISR to prevent prerender issues
+// ✅ Force fully dynamic rendering; avoid any prerender/ISR and caching
 export const dynamic = 'force-dynamic';
-export const revalidate = false;
+export const runtime = 'nodejs';
+export const fetchCache = 'force-no-store';
+export const dynamicParams = true;
 
 type Feature = {
   type: 'Feature';
@@ -206,66 +208,3 @@ export default function Page() {
 
       <header className="flex items-center justify-between mb-4">
         <motion.h1
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-3xl font-bold"
-        >
-          Digital Twin City —{' '}
-          <span className="text-indigo-500 dark:text-indigo-400">Prototype</span>
-        </motion.h1>
-        <button
-          onClick={() => setDark((d) => !d)}
-          className="btn flex items-center gap-2"
-          title="Toggle dark/light mode"
-        >
-          {dark ? <Sun size={18} /> : <Moon size={18} />}
-          {dark ? 'Light' : 'Dark'} Mode
-        </button>
-      </header>
-
-      <p className="text-black/70 dark:text-white/70 mt-1 mb-4 max-w-3xl">
-        Interactive map with togglable layers, heatmap, zone drawing, persona-based
-        simulations, and an AI assistant dock.
-      </p>
-
-      <section
-        className="grid grid-cols-1 md:grid-cols-3 gap-4"
-        style={{ minHeight: 560 }}
-      >
-        <div className="md:col-span-1">
-          <Controls
-            query={query}
-            onQuery={setQuery}
-            onGoToCity={goToCity}
-            show={show}
-            onToggle={(k) => toggle(k)}
-            intensity={intensity}
-            onIntensity={setIntensity}
-            onPlantTrees={plantTrees}
-            onCalmTraffic={calmTraffic}
-            onReset={resetSim}
-            persona={persona}
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <div className="card p-2" style={{ height: 560 }}>
-            <CityMap
-              center={center}
-              zoom={zoom}
-              datasets={{ noise, buildings, sensors, heat, traffic }}
-              show={show}
-              intensity={intensity}
-              onZoneDrawn={(poly) => {
-                // Placeholder: use this GeoJSON to compute zone-specific stats later
-                console.log('Zone drawn:', poly);
-              }}
-            />
-          </div>
-        </div>
-      </section>
-
-      <AssistantDock context={context} />
-    </main>
-  );
-}
