@@ -1,0 +1,8 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "id": "noise-a", "level": 75 }, "geometry": { "type": "Polygon", "coordinates": [[[-7.63, 33.58], [-7.63, 33.59], [-7.62, 33.59], [-7.62, 33.58], [-7.63, 33.58]]] } },
+    { "type": "Feature", "properties": { "id": "noise-b", "level": 60 }, "geometry": { "type": "Polygon", "coordinates": [[[-7.62, 33.58], [-7.62, 33.59], [-7.61, 33.59], [-7.61, 33.58], [-7.62, 33.58]]] } },
+    { "type": "Feature", "properties": { "id": "noise-c", "level": 45 }, "geometry": { "type": "Polygon", "coordinates": [[[-7.63, 33.57], [-7.63, 33.58], [-7.62, 33.58], [-7.62, 33.57], [-7.63, 33.57]]] } }
+  ]
+}
