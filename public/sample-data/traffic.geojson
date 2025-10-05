@@ -1,0 +1,7 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "road": "R-1", "speed_kmh": 22 }, "geometry": { "type": "LineString", "coordinates": [[-7.63, 33.586], [-7.62, 33.586]] } },
+    { "type": "Feature", "properties": { "road": "R-2", "speed_kmh": 45 }, "geometry": { "type": "LineString", "coordinates": [[-7.622, 33.585], [-7.621, 33.587]] } }
+  ]
+}
