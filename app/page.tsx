@@ -2,15 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import dynamic from 'next/dynamic';
+import NextDynamic from 'next/dynamic';
 import Controls from '@/components/Controls';
 import { Sun, Moon } from 'lucide-react';
 
-// ⛔️ Import these via next/dynamic to avoid SSR "window is not defined"
-const CityMap = dynamic(() => import('@/components/CityMap'), { ssr: false });
-const AssistantDock = dynamic(() => import('@/components/AssistantDock'), { ssr: false });
+// Import browser-only components with SSR disabled
+const CityMap = NextDynamic(() => import('@/components/CityMap'), { ssr: false });
+const AssistantDock = NextDynamic(() => import('@/components/AssistantDock'), { ssr: false });
 
-// Prevent static prerendering of this page (extra safety)
+// Prevent static prerendering (avoids SSR touching window/leaflet)
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -142,11 +142,7 @@ export default function Page() {
             <h2 className="text-xl font-bold mb-2">Select Your Purpose</h2>
             <p className="text-gray-500 dark:text-gray-400 mb-4">What is your purpose for using the dashboard today?</p>
             <div className="flex flex-col gap-3">
-              {[
-                { id: 'citizen', label: '👤 Normal Citizen' },
-                { id: 'health', label: '❤️ Health-Conscious Citizen' },
-                { id: 'investor', label: '🏗️ Investor / Planner' },
-              ].map(p => (
+              {personas.map(p => (
                 <button key={p.id} onClick={() => setPersona(p.id)} className="btn py-2 font-semibold hover:scale-[1.03] transition-transform">
                   {p.label}
                 </button>
