@@ -1,16 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import NextDynamic from 'next/dynamic';
 import Controls from '@/components/Controls';
 import { Sun, Moon } from 'lucide-react';
 
-// Browser-only components (avoid SSR/window issues)
+// Map must be client-only (Leaflet touches window)
 const CityMap = NextDynamic(() => import('@/components/CityMap'), { ssr: false });
+// Assistant now renders inline in the sidebar
 const AssistantDock = NextDynamic(() => import('@/components/AssistantDock'), { ssr: false });
 
-// Force this route to be dynamic (no prerender/ISR)
 export const dynamic = 'force-dynamic';
 
 type Feature = {
@@ -57,30 +57,25 @@ export default function Page() {
     if (dark) cls.add('dark'); else cls.remove('dark');
   }, [dark]);
 
-  // Persona
-  const [persona, setPersona] = useState<string | null>(null);
-  const personas = [
-    { id: 'citizen', label: '👤 Normal Citizen' },
-    { id: 'health', label: '❤️ Health-Conscious Citizen' },
-    { id: 'investor', label: '🏗️ Investor / Planner' },
-  ];
+  // Persona (purpose)
+  const [persona, setPersona] = useState<'citizen' | 'health' | 'investor' | null>(null);
 
-  // Load data (client only)
+  // Load sample data (client only)
   useEffect(() => {
     const load = async () => {
       const [n, b, s, h, t] = await Promise.all([
-        fetch('/sample-data/noise.geojson').then(r => r.json()),
-        fetch('/sample-data/buildings.geojson').then(r => r.json()),
-        fetch('/sample-data/sensors.geojson').then(r => r.json()),
-        fetch('/sample-data/heat-vulnerability.geojson').then(r => r.json()),
-        fetch('/sample-data/traffic.geojson').then(r => r.json()),
+        fetch('/sample-data/noise.geojson').then((r) => r.json()),
+        fetch('/sample-data/buildings.geojson').then((r) => r.json()),
+        fetch('/sample-data/sensors.geojson').then((r) => r.json()),
+        fetch('/sample-data/heat-vulnerability.geojson').then((r) => r.json()),
+        fetch('/sample-data/traffic.geojson').then((r) => r.json()),
       ]);
       setNoise(n); setBuildings(b); setSensors(s); setHeat(h); setTraffic(t);
     };
     load();
   }, []);
 
-  // AI context
+  // Assistant context
   const context = useMemo(() => ({
     persona,
     summary: 'Prototype digital twin datasets (synthetic).',
@@ -88,12 +83,12 @@ export default function Page() {
   }), [persona, noise, buildings, sensors, heat, traffic]);
 
   // Toggles
-  const toggle = (k: keyof typeof show) => setShow(s => ({ ...s, [k]: !s[k] }));
+  const toggle = (k: keyof typeof show) => setShow((s) => ({ ...s, [k]: !s[k] }));
 
   // Simulations
   const plantTrees = () => {
     if (!noise) return;
-    const f = noise.features.map(ft => ({
+    const f = noise.features.map((ft) => ({
       ...ft,
       properties: {
         ...ft.properties,
@@ -105,7 +100,7 @@ export default function Page() {
 
   const calmTraffic = () => {
     if (!traffic) return;
-    const f = traffic.features.map(ft => {
+    const f = traffic.features.map((ft) => {
       const s = Number(ft.properties.speed_kmh);
       const reduced = s - (s - 30) * 0.2 * intensity;
       return { ...ft, properties: { ...ft.properties, speed_kmh: Math.max(5, Number(reduced.toFixed(1))) } };
@@ -115,13 +110,13 @@ export default function Page() {
 
   const resetSim = async () => {
     const [n, t] = await Promise.all([
-      fetch('/sample-data/noise.geojson').then(r => r.json()),
-      fetch('/sample-data/traffic.geojson').then(r => r.json()),
+      fetch('/sample-data/noise.geojson').then((r) => r.json()),
+      fetch('/sample-data/traffic.geojson').then((r) => r.json()),
     ]);
     setNoise(n); setTraffic(t);
   };
 
-  // City search: presets first, else Nominatim
+  // City search (presets first, then Nominatim)
   const goToCity = async (name: string) => {
     const key = (name || '').toLowerCase().trim();
     if (PRESETS[key]) {
@@ -138,81 +133,57 @@ export default function Page() {
         setCenter([parseFloat(lat), parseFloat(lon)]);
         setZoom(12);
       }
-    } catch {/* ignore */}
+    } catch {}
   };
 
   return (
-    <main className="container py-6 relative min-h-screen pb-28">
-      {/* Persona modal */}
-      <AnimatePresence>
-        {!persona && (
-          <motion.div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <motion.div
-              className="card p-6 bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-96 text-center space-y-4"
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-            >
-              <h2 className="text-xl font-bold mb-2">Select Your Purpose</h2>
-              <p className="text-gray-500 dark:text-gray-400 mb-4">
-                What is your purpose for using the dashboard today?
-              </p>
-              <div className="flex flex-col gap-3">
-                {personas.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => setPersona(p.id)}
-                    className="btn py-2 font-semibold hover:scale-[1.03] transition-transform"
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
+    <main className="container py-6 relative min-h-screen">
+      {/* Header */}
       <header className="flex items-center justify-between mb-4">
         <motion.h1 initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="text-3xl font-bold">
           Digital Twin City — <span className="text-indigo-500 dark:text-indigo-400">Prototype</span>
         </motion.h1>
-        <button onClick={() => setDark(d => !d)} className="btn flex items-center gap-2" title="Toggle dark/light mode">
+        <button onClick={() => setDark((d) => !d)} className="btn flex items-center gap-2" title="Toggle dark/light mode">
           {dark ? <Sun size={18} /> : <Moon size={18} />}{dark ? 'Light' : 'Dark'} Mode
         </button>
       </header>
 
       <p className="text-black/70 dark:text-white/70 mt-1 mb-4 max-w-3xl">
-        Interactive map with togglable layers, heatmap, zone drawing, persona-based simulations, and an AI assistant dock.
+        Purpose selector and AI assistant live in the left sidebar. The map has the rest of the screen. No more overlapping.
       </p>
 
-      {/* Layout grid: sticky sidebar + roomy map, with padding for the dock */}
-      <section className="grid grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)] gap-6">
-        {/* Sidebar */}
-        <div className="lg:sticky lg:top-24 lg:self-start">
+      {/* Two-column layout: sticky sidebar + full map */}
+      <section className="grid grid-cols-1 xl:grid-cols-[380px_minmax(0,1fr)] gap-6">
+        {/* Sidebar (sticky) */}
+        <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
           <Controls
+            // city search
             query={query}
             onQuery={setQuery}
             onGoToCity={goToCity}
+            // layers
             show={show}
             onToggle={(k) => toggle(k)}
+            // sims
             intensity={intensity}
             onIntensity={setIntensity}
             onPlantTrees={plantTrees}
             onCalmTraffic={calmTraffic}
             onReset={resetSim}
+            // persona
             persona={persona}
+            onPersonaChange={(p) => setPersona(p as any)}
           />
-        </div>
 
-        {/* Map column (reserve space on the right for the dock on large screens) */}
-        <div className="lg:pr-72">
-          <div className="card p-0 relative overflow-hidden h-[72vh] lg:h-[78vh]">
+          {/* Inline assistant (no overlay) */}
+          <div className="card p-4">
+            <AssistantDock context={context} layout="inline" />
+          </div>
+        </aside>
+
+        {/* Map column */}
+        <section>
+          <div className="card p-0 overflow-hidden h-[78vh]">
             <CityMap
               center={center}
               zoom={zoom}
@@ -224,11 +195,8 @@ export default function Page() {
               }}
             />
           </div>
-        </div>
+        </section>
       </section>
-
-      {/* AI Dock (bottom-right, won’t overlap map due to lg:pr-72 above) */}
-      <AssistantDock context={context} />
     </main>
   );
 }
