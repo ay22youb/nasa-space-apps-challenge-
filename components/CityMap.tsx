@@ -1,234 +1,254 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  GeoJSON,
-  Marker,
-  Popup,
-  LayersControl,
-  useMap
-} from "react-leaflet";
-import L, { LatLngExpression } from "leaflet";
-import "leaflet-draw"; // runtime plugin
+import { useEffect, useRef } from 'react';
+import L, { Map as LMap, GeoJSON as LGeoJSON } from 'leaflet';
 
-import HeatmapLayer from "./HeatmapLayer";
+type LatLng = [number, number];
 
 type Feature = {
   type: 'Feature';
   properties: Record<string, any>;
-  geometry: { type: string; coordinates: any }
+  geometry: { type: string; coordinates: any };
 };
-type FeatureCollection = { type: 'FeatureCollection'; features: Feature[] };
+type FeatureCollection = { type: 'FeatureCollection'; features: Feature[] } | null;
 
-export type CityMapProps = {
-  center: LatLngExpression;
+type ShowFlags = {
+  noise: boolean;
+  buildings: boolean;
+  sensors: boolean;
+  heat: boolean;
+  traffic: boolean;
+  heatmap: boolean; // we’ll render via same noise styling for now
+};
+
+type Props = {
+  center: LatLng;
   zoom: number;
   datasets: {
-    noise: FeatureCollection | null;
-    buildings: FeatureCollection | null;
-    sensors: FeatureCollection | null;
-    heat: FeatureCollection | null;
-    traffic: FeatureCollection | null;
+    noise: FeatureCollection;
+    buildings: FeatureCollection;
+    sensors: FeatureCollection;
+    heat: FeatureCollection;
+    traffic: FeatureCollection;
   };
-  show: { noise: boolean; buildings: boolean; sensors: boolean; heat: boolean; traffic: boolean; heatmap: boolean; };
+  show: ShowFlags;
   intensity: number;
-  onZoneDrawn?: (polygonGeoJSON: any) => void;
+  onZoneDrawn?: (polygon: any) => void; // kept for future
 };
 
-function SetupIcons() {
-  useEffect(() => {
-    const iconRetinaUrl = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png";
-    const iconUrl = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png";
-    const shadowUrl = "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png";
-    L.Icon.Default.mergeOptions({ iconRetinaUrl, iconUrl, shadowUrl });
-  }, []);
-  return null;
-}
+export default function CityMap({ center, zoom, datasets, show }: Props) {
+  const mapRef = useRef<LMap | null>(null);
 
-/** Add Leaflet.Draw controls; use string events to avoid TS missing types */
-function DrawControl({ onZoneDrawn }: { onZoneDrawn?: (polygon: any) => void }) {
-  const map = useMap();
-  const drawnRef = useRef<L.FeatureGroup | null>(null);
+  // Keep references to active layers so we can cleanly remove & re-add on change
+  const layersRef = useRef<{
+    base?: L.TileLayer;
+    noise?: LGeoJSON;
+    heat?: LGeoJSON;
+    traffic?: LGeoJSON;
+    sensors?: LGeoJSON;
+    buildings?: LGeoJSON;
+  }>({});
 
-  useEffect(() => {
-    drawnRef.current = new L.FeatureGroup();
-    map.addLayer(drawnRef.current);
-
-    // Cast to any because @types/leaflet doesn't include Draw
-    const drawControl = new (L as any).Control.Draw({
-      draw: {
-        polygon: true,
-        rectangle: false,
-        circle: false,
-        circlemarker: false,
-        marker: false,
-        polyline: false
-      },
-      edit: { featureGroup: drawnRef.current }
-    });
-    map.addControl(drawControl as any);
-
-    const created = (e: any) => {
-      const layer = e.layer as L.Polygon;
-      drawnRef.current?.addLayer(layer);
-      const gj = layer.toGeoJSON();
-      onZoneDrawn?.(gj);
-    };
-
-    // Use string event name from leaflet-draw to avoid typing L.Draw.Event.CREATED
-    map.on('draw:created' as any, created);
-
-    return () => {
-      map.off('draw:created' as any, created);
-      try { map.removeControl(drawControl as any); } catch {}
-      if (drawnRef.current) {
-        try { map.removeLayer(drawnRef.current); } catch {}
-      }
-    };
-  }, [map, onZoneDrawn]);
-
-  return null;
-}
-
-export default function CityMap({ center, zoom, datasets, show, intensity, onZoneDrawn }: CityMapProps) {
-  // color helper
-  const colormap = (t: number) => {
-    const r = Math.round(255 * t);
-    const g = Math.round(255 * (1 - t));
-    return `rgb(${r},${g},80)`;
+  // ---------- color helpers ----------
+  const colorNoise = (level: number) => {
+    // 0..100 (lower is better)
+    if (level >= 75) return '#ef4444'; // red
+    if (level >= 60) return '#f97316'; // orange
+    if (level >= 40) return '#f59e0b'; // amber
+    return '#10b981';                  // green
+  };
+  const colorHeat = (val: number) => {
+    // 0..100 risk-like
+    if (val >= 75) return '#b91c1c';   // darker red
+    if (val >= 60) return '#f97316';   // orange
+    if (val >= 40) return '#f59e0b';   // amber
+    return '#22c55e';                  // green
+  };
+  const colorTraffic = (speed: number) => {
+    // slower = “worse”
+    if (speed <= 20) return '#ef4444';
+    if (speed <= 35) return '#f97316';
+    if (speed <= 50) return '#f59e0b';
+    return '#10b981';
   };
 
-  // Heatmap points from Noise centroids
-  const heatPoints = useMemo(() => {
-    if (!datasets.noise || !datasets.noise.features.length) return [] as [number, number, number][];
-    const levels = datasets.noise.features.map(f => Number(f.properties?.level ?? 0));
-    const max = Math.max(1, ...levels);
+  // ---------- INIT MAP (once) ----------
+  useEffect(() => {
+    if (mapRef.current) return;
 
-    const centroid = (coords: any[]): [number, number] | null => {
-      const ring = coords?.[0];
-      if (!Array.isArray(ring) || ring.length < 3) return null;
-      let x = 0, y = 0;
-      for (const pt of ring) { x += pt[0]; y += pt[1]; }
-      return [y / ring.length, x / ring.length]; // [lat, lng]
+    const map = L.map('map-root', {
+      center,
+      zoom,
+      zoomControl: true,
+    });
+
+    const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+    }).addTo(map);
+
+    layersRef.current.base = base;
+    mapRef.current = map;
+
+    // Make sure the map sizes correctly
+    setTimeout(() => map.invalidateSize(), 0);
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  // ---------- UPDATE VIEW when center/zoom changes ----------
+  useEffect(() => {
+    if (!mapRef.current) return;
+    mapRef.current.setView(center, zoom);
+  }, [center, zoom]);
+
+  // ---------- RENDER / RE-RENDER LAYERS when datasets or show flags change ----------
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // helper to remove a layer if exists
+    const removeIf = (layer?: LGeoJSON) => {
+      if (layer) {
+        map.removeLayer(layer);
+      }
     };
 
-    const pts: [number, number, number][] = [];
-    for (const f of datasets.noise.features) {
-      if (f.geometry?.type !== "Polygon") continue;
-      const c = centroid(f.geometry.coordinates);
-      if (!c) continue;
-      const lvl = Number(f.properties?.level ?? 0);
-      const t = Math.min(1, (lvl / max) * (0.5 + 0.5 * intensity));
-      pts.push([c[0], c[1], t]);
+    // 1) NOISE polygons (also used as “heatmap” visual)
+    removeIf(layersRef.current.noise);
+    if (show.noise && datasets.noise) {
+      layersRef.current.noise = L.geoJSON(datasets.noise as any, {
+        style: (feat: any) => {
+          const lvl = Number(feat?.properties?.level ?? feat?.properties?.value ?? 50);
+          return {
+            color: '#00000020',
+            weight: 1,
+            fillColor: colorNoise(lvl),
+            fillOpacity: 0.45,
+          };
+        },
+        onEachFeature: (feat, layer) => {
+          const lvl = Number((feat as any)?.properties?.level ?? 0);
+          (layer as any).bindPopup(`Noise level: <b>${lvl}</b>`);
+        },
+      }).addTo(map);
     }
-    return pts;
-  }, [datasets.noise, intensity]);
 
-  const noiseLayer = useMemo(() => {
-    if (!datasets.noise || !show.noise) return null;
-    const vals = datasets.noise.features.map(f => Number(f.properties?.level ?? 0));
-    const max = Math.max(1, ...vals);
-    return (
-      <GeoJSON
-        data={datasets.noise as any}
-        style={(f: any) => {
-          const lvl = Number(f.properties?.level ?? 0);
-          const t = Math.min(1, (lvl / max) * (0.5 + intensity * 0.5));
-          return { color: "#ffffff88", weight: 1, fillColor: colormap(t), fillOpacity: 0.45 + 0.4 * intensity };
-        }}
-        onEachFeature={(feature, layer) => layer.bindPopup(`Noise: <b>${feature.properties?.level}</b>`)}
-      />
-    );
-  }, [datasets.noise, intensity, show.noise]);
-
-  const buildingsLayer = useMemo(() => {
-    if (!datasets.buildings || !show.buildings) return null;
-    return (
-      <GeoJSON
-        data={datasets.buildings as any}
-        style={() => ({ color: "#9ca3af", weight: 1, fillColor: "#6b7280", fillOpacity: 0.25 })}
-        onEachFeature={(feature, layer) => {
-          const nm = feature.properties?.name ?? feature.properties?.id;
-          const h  = feature.properties?.height_m;
-          layer.bindPopup(`Building: <b>${nm}</b><br/>Height: ${h} m`);
-        }}
-      />
-    );
-  }, [datasets.buildings, show.buildings]);
-
-  const sensorsLayer = useMemo(() => {
-    if (!datasets.sensors || !show.sensors) return null;
-    return (
-      <>
-        {datasets.sensors.features.map((f, i) => {
-          const [lng, lat] = f.geometry.coordinates;
-          return (
-            <Marker key={i} position={[lat, lng] as any}>
-              <Popup>
-                Sensor <b>{f.properties?.id}</b><br/>
-                Type: {String(f.properties?.type)}<br/>
-                Reading: {String(f.properties?.reading ?? "—")}
-              </Popup>
-            </Marker>
+    // 2) HEAT polygons
+    removeIf(layersRef.current.heat);
+    if (show.heat && datasets.heat) {
+      layersRef.current.heat = L.geoJSON(datasets.heat as any, {
+        style: (feat: any) => {
+          const h = Number(
+            feat?.properties?.score ??
+            feat?.properties?.index ??
+            feat?.properties?.value ??
+            50
           );
-        })}
-      </>
-    );
-  }, [datasets.sensors, show.sensors]);
+          return {
+            color: '#00000020',
+            weight: 1,
+            fillColor: colorHeat(h),
+            fillOpacity: 0.35,
+          };
+        },
+        onEachFeature: (feat, layer) => {
+          const h = Number((feat as any)?.properties?.score ?? 0);
+          (layer as any).bindPopup(`Heat vulnerability: <b>${h}</b>`);
+        },
+      }).addTo(map);
+    }
 
-  const heatLayer = useMemo(() => {
-    if (!datasets.heat || !show.heat) return null;
-    const vals = datasets.heat.features.map(f => Number(f.properties?.vulnerability ?? 0));
-    const max = Math.max(1, ...vals);
-    return (
-      <GeoJSON
-        data={datasets.heat as any}
-        style={(f: any) => {
-          const v = Number(f.properties?.vulnerability ?? 0);
-          const t = Math.min(1, (v / max) * (0.5 + intensity * 0.5));
-          return { color: "#ffffff55", weight: 1, fillColor: colormap(t), fillOpacity: 0.35 + 0.4 * intensity };
-        }}
-        onEachFeature={(feature, layer) => layer.bindPopup(`Heat vulnerability: <b>${feature.properties?.vulnerability}</b>`)}
-      />
-    );
-  }, [datasets.heat, intensity, show.heat]);
+    // 3) TRAFFIC lines
+    removeIf(layersRef.current.traffic);
+    if (show.traffic && datasets.traffic) {
+      layersRef.current.traffic = L.geoJSON(datasets.traffic as any, {
+        style: (feat: any) => {
+          const s = Number(feat?.properties?.speed_kmh ?? 30);
+          return {
+            color: colorTraffic(s),
+            weight: 3,
+            opacity: 0.9,
+          };
+        },
+        onEachFeature: (feat, layer) => {
+          const s = Number((feat as any)?.properties?.speed_kmh ?? 0);
+          (layer as any).bindPopup(`Traffic speed: <b>${s} km/h</b>`);
+        },
+      }).addTo(map);
+    }
 
-  const trafficLayer = useMemo(() => {
-    if (!datasets.traffic || !show.traffic) return null;
-    const speeds = datasets.traffic.features.map(f => Number(f.properties?.speed_kmh ?? 0));
-    const max = Math.max(1, ...speeds);
-    return (
-      <GeoJSON
-        data={datasets.traffic as any}
-        style={(f: any) => {
-          const s = Number(f.properties?.speed_kmh ?? 0);
-          const t = 1 - Math.min(1, s / max);
-          return { color: colormap(t * (0.5 + 0.5 * intensity)), weight: 3 };
-        }}
-        onEachFeature={(feature, layer) => layer.bindPopup(`Road: <b>${feature.properties?.road}</b><br/>Speed: ${feature.properties?.speed_kmh} km/h`)}
-      />
-    );
-  }, [datasets.traffic, intensity, show.traffic]);
+    // 4) BUILDINGS polygons/lines/points
+    removeIf(layersRef.current.buildings);
+    if (show.buildings && datasets.buildings) {
+      layersRef.current.buildings = L.geoJSON(datasets.buildings as any, {
+        style: {
+          color: '#64748b', // slate-500
+          weight: 1,
+          fillColor: '#94a3b8', // slate-400
+          fillOpacity: 0.2,
+        },
+        pointToLayer: (_feat, latlng) => L.circleMarker(latlng, {
+          radius: 3,
+          color: '#64748b',
+          weight: 1,
+          fillColor: '#94a3b8',
+          fillOpacity: 0.6,
+        }),
+      }).addTo(map);
+    }
 
-  return (
-    <MapContainer center={center} zoom={zoom} style={{ width: "100%", height: "100%", borderRadius: 16 }}>
-      <SetupIcons />
-      <DrawControl onZoneDrawn={onZoneDrawn} />
-      <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-      <LayersControl position="topright">
-        {noiseLayer && <LayersControl.Overlay checked name="Noise">{noiseLayer}</LayersControl.Overlay>}
-        {buildingsLayer && <LayersControl.Overlay checked name="Buildings">{buildingsLayer}</LayersControl.Overlay>}
-        {sensorsLayer && <LayersControl.Overlay checked name="Sensors">{sensorsLayer}</LayersControl.Overlay>}
-        {heatLayer && <LayersControl.Overlay checked name="Heat Vulnerability">{heatLayer}</LayersControl.Overlay>}
-        {trafficLayer && <LayersControl.Overlay checked name="Traffic">{trafficLayer}</LayersControl.Overlay>}
-        {show.heatmap && heatPoints.length > 0 && (
-          <LayersControl.Overlay checked name="Heatmap (from Noise)">
-            <HeatmapLayer points={heatPoints} radius={28} blur={18} minOpacity={0.25} max={1.0} />
-          </LayersControl.Overlay>
-        )}
-      </LayersControl>
-    </MapContainer>
-  );
+    // 5) SENSORS points
+    removeIf(layersRef.current.sensors);
+    if (show.sensors && datasets.sensors) {
+      layersRef.current.sensors = L.geoJSON(datasets.sensors as any, {
+        pointToLayer: (feat: any, latlng) => {
+          const type = String(feat?.properties?.type ?? 'sensor');
+          const val = Number(feat?.properties?.value ?? 0);
+          return L.circleMarker(latlng, {
+            radius: 4,
+            color: '#0ea5e9', // sky-500
+            weight: 2,
+            fillColor: '#38bdf8', // sky-400
+            fillOpacity: 0.9,
+          }).bindPopup(`${type}: <b>${val}</b>`);
+        },
+      }).addTo(map);
+    }
+
+    // Note: show.heatmap flag could be used to overlay a different viz (e.g., leaflet.heat).
+    // For now, we use the same noise choropleth as the heatmap visual when "noise" is on.
+
+    // Cleanup function when ANY dependency changes
+    return () => {
+      removeIf(layersRef.current.noise);
+      removeIf(layersRef.current.heat);
+      removeIf(layersRef.current.traffic);
+      removeIf(layersRef.current.buildings);
+      removeIf(layersRef.current.sensors);
+      layersRef.current.noise = undefined;
+      layersRef.current.heat = undefined;
+      layersRef.current.traffic = undefined;
+      layersRef.current.buildings = undefined;
+      layersRef.current.sensors = undefined;
+    };
+  }, [
+    datasets.noise,
+    datasets.heat,
+    datasets.traffic,
+    datasets.buildings,
+    datasets.sensors,
+    show.noise,
+    show.heat,
+    show.traffic,
+    show.buildings,
+    show.sensors,
+    show.heatmap,
+  ]);
+
+  return <div id="map-root" className="w-full h-full min-h-[60vh]" />;
 }
