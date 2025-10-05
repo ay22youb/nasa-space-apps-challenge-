@@ -91,4 +91,144 @@ export default function Page() {
   const toggle = (k: keyof typeof show) => setShow(s => ({ ...s, [k]: !s[k] }));
 
   // Simulations
-  co
+  const plantTrees = () => {
+    if (!noise) return;
+    const f = noise.features.map(ft => ({
+      ...ft,
+      properties: {
+        ...ft.properties,
+        level: Math.max(0, Number(ft.properties.level) * (1 - 0.3 * intensity)),
+      },
+    }));
+    setNoise({ ...noise, features: f });
+  };
+
+  const calmTraffic = () => {
+    if (!traffic) return;
+    const f = traffic.features.map(ft => {
+      const s = Number(ft.properties.speed_kmh);
+      const reduced = s - (s - 30) * 0.2 * intensity;
+      return { ...ft, properties: { ...ft.properties, speed_kmh: Math.max(5, Number(reduced.toFixed(1))) } };
+    });
+    setTraffic({ ...traffic, features: f });
+  };
+
+  const resetSim = async () => {
+    const [n, t] = await Promise.all([
+      fetch('/sample-data/noise.geojson').then(r => r.json()),
+      fetch('/sample-data/traffic.geojson').then(r => r.json()),
+    ]);
+    setNoise(n); setTraffic(t);
+  };
+
+  // City search: presets first, else Nominatim
+  const goToCity = async (name: string) => {
+    const key = (name || '').toLowerCase().trim();
+    if (PRESETS[key]) {
+      const [lat, lng, z] = PRESETS[key];
+      setCenter([lat, lng]); setZoom(z);
+      return;
+    }
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(name)}`;
+      const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+      const data = await res.json();
+      if (Array.isArray(data) && data.length) {
+        const { lat, lon } = data[0];
+        setCenter([parseFloat(lat), parseFloat(lon)]);
+        setZoom(12);
+      }
+    } catch {/* ignore */}
+  };
+
+  return (
+    <main className="container py-6 relative min-h-screen pb-28">
+      {/* Persona modal */}
+      <AnimatePresence>
+        {!persona && (
+          <motion.div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="card p-6 bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-96 text-center space-y-4"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+            >
+              <h2 className="text-xl font-bold mb-2">Select Your Purpose</h2>
+              <p className="text-gray-500 dark:text-gray-400 mb-4">
+                What is your purpose for using the dashboard today?
+              </p>
+              <div className="flex flex-col gap-3">
+                {personas.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setPersona(p.id)}
+                    className="btn py-2 font-semibold hover:scale-[1.03] transition-transform"
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <header className="flex items-center justify-between mb-4">
+        <motion.h1 initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="text-3xl font-bold">
+          Digital Twin City — <span className="text-indigo-500 dark:text-indigo-400">Prototype</span>
+        </motion.h1>
+        <button onClick={() => setDark(d => !d)} className="btn flex items-center gap-2" title="Toggle dark/light mode">
+          {dark ? <Sun size={18} /> : <Moon size={18} />}{dark ? 'Light' : 'Dark'} Mode
+        </button>
+      </header>
+
+      <p className="text-black/70 dark:text-white/70 mt-1 mb-4 max-w-3xl">
+        Interactive map with togglable layers, heatmap, zone drawing, persona-based simulations, and an AI assistant dock.
+      </p>
+
+      {/* Layout grid: sticky sidebar + roomy map, with padding for the dock */}
+      <section className="grid grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)] gap-6">
+        {/* Sidebar */}
+        <div className="lg:sticky lg:top-24 lg:self-start">
+          <Controls
+            query={query}
+            onQuery={setQuery}
+            onGoToCity={goToCity}
+            show={show}
+            onToggle={(k) => toggle(k)}
+            intensity={intensity}
+            onIntensity={setIntensity}
+            onPlantTrees={plantTrees}
+            onCalmTraffic={calmTraffic}
+            onReset={resetSim}
+            persona={persona}
+          />
+        </div>
+
+        {/* Map column (reserve space on the right for the dock on large screens) */}
+        <div className="lg:pr-72">
+          <div className="card p-0 relative overflow-hidden h-[72vh] lg:h-[78vh]">
+            <CityMap
+              center={center}
+              zoom={zoom}
+              datasets={{ noise, buildings, sensors, heat, traffic }}
+              show={show}
+              intensity={intensity}
+              onZoneDrawn={(poly) => {
+                console.log('Zone drawn:', poly);
+              }}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* AI Dock (bottom-right, won’t overlap map due to lg:pr-72 above) */}
+      <AssistantDock context={context} />
+    </main>
+  );
+}
