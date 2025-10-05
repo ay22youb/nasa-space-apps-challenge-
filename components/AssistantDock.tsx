@@ -1,24 +1,42 @@
 'use client';
 
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useState } from "react";
 
 type Msg = { role: 'user' | 'assistant'; content: string };
+type Props = { context: any; layout?: 'inline' | 'floating' };
 
-export default function AssistantDock({ context }: { context: any }) {
-  const [open, setOpen] = useState(true);
+const SUGGESTIONS = [
+  "Summarize current noise and heat.",
+  "Which roads are slowest now?",
+  "Where should a school go?",
+  "Best area for asthma sensitivity?",
+];
+
+export default function AssistantDock({ context, layout = 'inline' }: Props) {
   const [q, setQ] = useState('');
-  const [msgs, setMsgs] = useState<Msg[]>([
-    { role: 'assistant', content: 'Ask about noise, traffic, buildings, sensors, or heat. Simulate changes, then ask again for updated stats.' }
-  ]);
   const [busy, setBusy] = useState(false);
+  const [msgs, setMsgs] = useState<Msg[]>([
+    { role: 'assistant', content: 'Hi! Ask about noise, heat vulnerability, sensors, or traffic. Run a simulation, then ask again for updated stats.' }
+  ]);
 
-  const ask = async () => {
-    if (!q.trim() || busy) return;
-    setMsgs(m => [...m, { role: 'user', content: q }]);
-    setBusy(true);
-    const question = q;
+  // optional: auto-suggest persona-specific tip
+  useEffect(() => {
+    if (!context?.persona) return;
+    const tip =
+      context.persona === 'health'
+        ? "Health mode: prioritize lower noise and heat. I can point to the best zones."
+        : context.persona === 'investor'
+        ? "Investor mode: I’ll balance traffic and noise to suggest feasible areas."
+        : "Citizen mode: explore layers freely or ask for a quick city summary.";
+    setMsgs(m => (m[0]?.role === 'assistant' ? [{ role: 'assistant', content: tip }, ...m.slice(1)] : m));
+  }, [context?.persona]);
+
+  const ask = async (text?: string) => {
+    const question = (text ?? q).trim();
+    if (!question || busy) return;
     setQ('');
+    setMsgs(m => [...m, { role: 'user', content: question }]);
+    setBusy(true);
     try {
       const res = await fetch('/api/ask', {
         method: 'POST',
@@ -35,34 +53,36 @@ export default function AssistantDock({ context }: { context: any }) {
   };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="fixed bottom-4 right-4 w-full max-w-md z-40">
-      <div className="card p-3">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold">AI Assistant</h3>
-          <button className="btn px-3 py-1" onClick={() => setOpen(o => !o)}>{open ? 'Hide' : 'Show'}</button>
-        </div>
-        {open && (
-          <>
-            <div className="h-48 overflow-y-auto space-y-2 pr-1">
-              {msgs.map((m, i) => (
-                <div key={i} className={`text-sm ${m.role === 'user' ? 'text-indigo-300' : 'text-black/90 dark:text-white/90'}`}>
-                  <b>{m.role === 'user' ? 'You' : 'Assistant'}:</b> {m.content}
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 flex gap-2">
-              <input
-                className="input"
-                placeholder="Ask about the map data…"
-                value={q}
-                onChange={e => setQ(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' ? ask() : null}
-              />
-              <button className="btn" disabled={busy} onClick={ask}>{busy ? '...' : 'Ask'}</button>
-            </div>
-          </>
-        )}
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="font-semibold">Ask an AI</h3>
       </div>
-    </motion.div>
+
+      <div className="flex flex-wrap gap-2 mb-2">
+        {SUGGESTIONS.map((s) => (
+          <button key={s} className="btn px-3 py-1 text-xs" onClick={() => ask(s)}>{s}</button>
+        ))}
+      </div>
+
+      <div className="h-56 overflow-y-auto space-y-2 pr-1">
+        {msgs.map((m, i) => (
+          <div key={i} className={`text-sm ${m.role === 'user' ? 'text-indigo-300' : 'text-black/90 dark:text-white/90'}`}>
+            <b>{m.role === 'user' ? 'You' : 'Assistant'}:</b> {m.content}
+          </div>
+        ))}
+        {busy && <div className="text-sm text-black/60 dark:text-white/60">Assistant is typing…</div>}
+      </div>
+
+      <div className="mt-2 flex gap-2">
+        <input
+          className="input"
+          placeholder="Ask about the map data…"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' ? ask() : null}
+        />
+        <button className="btn" disabled={busy} onClick={() => ask()}>{busy ? '...' : 'Ask'}</button>
+      </div>
+    </div>
   );
 }
