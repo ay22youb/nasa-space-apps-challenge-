@@ -6,6 +6,7 @@ type Feature = { type: 'Feature'; properties: Record<string, any>; geometry: { t
 type FeatureCollection = { type: 'FeatureCollection'; features: Feature[] };
 
 type Context = {
+  persona: string | null;
   summary: string;
   layers: {
     noise: FeatureCollection | null;
@@ -16,11 +17,10 @@ type Context = {
   };
 };
 
-function numericArray(values: any[]): number[] {
+function numeric(values: any[]): number[] {
   return values.map(v => (typeof v === 'number' ? v : Number(v))).filter(v => Number.isFinite(v));
 }
-
-function describeStats(values: number[]) {
+function stats(values: number[]) {
   if (!values.length) return null;
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -28,89 +28,94 @@ function describeStats(values: number[]) {
   return { min, max, avg: Number(avg.toFixed(2)) };
 }
 
-function answerFromContext(q: string, ctx: Context) {
-  const text = q.toLowerCase();
+function baseAnswers(text: string, ctx: Context) {
+  const t = text.toLowerCase();
 
-  // Noise questions
-  if (text.includes('noise')) {
+  if (t.includes('noise')) {
     const feats = ctx.layers.noise?.features ?? [];
     const pairs = feats.map(f => ({ id: f.properties?.id ?? 'unknown', level: Number(f.properties?.level) }));
-    const levels = numericArray(pairs.map(p => p.level));
-    const stats = describeStats(levels);
-    if (!stats) return 'I could not find noise data.';
+    const levels = numeric(pairs.map(p => p.level));
+    const s = stats(levels);
+    if (!s) return 'No noise data found.';
     const maxLevel = Math.max(...pairs.map(p => p.level));
-    const hottest = pairs.filter(p => p.level === maxLevel).map(p => p.id);
-    return `Noise levels — min: ${stats.min}, max: ${stats.max}, avg: ${stats.avg}. Highest noise in: ${hottest.join(', ')}.`;
+    const where = pairs.filter(p => p.level === maxLevel).map(p => p.id);
+    return `Noise — min: ${s.min}, max: ${s.max}, avg: ${s.avg}. Highest in: ${where.join(', ')}.`;
   }
 
-  // Traffic questions
-  if (text.includes('traffic') || text.includes('speed')) {
+  if (t.includes('traffic') || t.includes('speed')) {
     const feats = ctx.layers.traffic?.features ?? [];
-    const speeds = numericArray(feats.map(f => f.properties?.speed_kmh));
-    const stats = describeStats(speeds);
-    if (!stats) return 'I could not find traffic data.';
+    const speeds = numeric(feats.map(f => f.properties?.speed_kmh));
+    const s = stats(speeds);
+    if (!s) return 'No traffic data found.';
     const minSpeed = Math.min(...speeds);
     const slowest = feats.filter(f => Number(f.properties?.speed_kmh) === minSpeed).map(f => f.properties?.road ?? 'unknown');
-    return `Traffic speeds — min: ${stats.min} km/h, max: ${stats.max} km/h, avg: ${stats.avg} km/h. Slowest road(s): ${slowest.join(', ')}.`;
+    return `Traffic — min: ${s.min} km/h, max: ${s.max} km/h, avg: ${s.avg} km/h. Slowest: ${slowest.join(', ')}.`;
   }
 
-  // Buildings questions
-  if (text.includes('building') || text.includes('height') || text.includes('tall')) {
+  if (t.includes('building') || t.includes('height') || t.includes('tall')) {
     const feats = ctx.layers.buildings?.features ?? [];
-    const list = feats.map(f => ({
-      name: f.properties?.name ?? f.properties?.id ?? 'unknown',
-      h: Number(f.properties?.height_m)
-    }));
-    const heights = numericArray(list.map(x => x.h));
-    const stats = describeStats(heights);
-    if (!stats) return 'I could not find buildings data.';
+    const list = feats.map(f => ({ name: f.properties?.name ?? f.properties?.id ?? 'unknown', h: Number(f.properties?.height_m) }));
+    const heights = numeric(list.map(x => x.h));
+    const s = stats(heights);
+    if (!s) return 'No buildings data found.';
     const maxH = Math.max(...heights);
     const tallest = list.filter(x => x.h === maxH).map(x => `${x.name} (${x.h} m)`);
-    return `Buildings height — min: ${stats.min} m, max: ${stats.max} m, avg: ${stats.avg} m. Tallest: ${tallest.join(', ')}.`;
+    return `Buildings — min: ${s.min} m, max: ${s.max} m, avg: ${s.avg} m. Tallest: ${tallest.join(', ')}.`;
   }
 
-  // Heat vulnerability
-  if (text.includes('heat') || text.includes('vulnerability') || text.includes('hot')) {
+  if (t.includes('heat') || t.includes('vulnerability')) {
     const feats = ctx.layers.heat?.features ?? [];
     const pairs = feats.map(f => ({ zone: String(f.properties?.zone ?? 'unknown'), v: Number(f.properties?.vulnerability) }));
-    const vals = numericArray(pairs.map(p => p.v));
-    const stats = describeStats(vals);
-    if (!stats) return 'I could not find heat-vulnerability data.';
+    const vals = numeric(pairs.map(p => p.v));
+    const s = stats(vals);
+    if (!s) return 'No heat-vulnerability data found.';
     const maxV = Math.max(...vals);
-    const highest = pairs.filter(p => p.v === maxV).map(p => `${p.zone} (${p.v})`);
-    return `Heat vulnerability — min: ${stats.min}, max: ${stats.max}, avg: ${stats.avg}. Highest vulnerability in: ${highest.join(', ')}.`;
+    const worst = pairs.filter(p => p.v === maxV).map(p => `${p.zone} (${p.v})`);
+    return `Heat vulnerability — min: ${s.min}, max: ${s.max}, avg: ${s.avg}. Highest: ${worst.join(', ')}.`;
   }
 
-  // Sensors
-  if (text.includes('sensor')) {
+  if (t.includes('sensor')) {
     const feats = ctx.layers.sensors?.features ?? [];
     const kinds = feats.reduce<Record<string, number>>((acc, f) => {
-      const t = String(f.properties?.type ?? 'unknown');
-      acc[t] = (acc[t] ?? 0) + 1;
+      const typ = String(f.properties?.type ?? 'unknown');
+      acc[typ] = (acc[typ] ?? 0) + 1;
       return acc;
     }, {});
     const total = feats.length;
     const breakdown = Object.entries(kinds).map(([k, v]) => `${k}: ${v}`).join(', ');
-    return `There are ${total} sensors. By type — ${breakdown}.`;
+    return `Sensors: ${total}. Types — ${breakdown}.`;
   }
 
-  if (text.includes('summary') || text.includes('overview')) {
-    return `Available layers: noise, buildings, sensors, heat vulnerability, and traffic. Ask things like: 
-- "Which area has the highest noise levels?"
-- "What is the average traffic speed?"
-- "Which is the tallest building?"
-- "Where is heat vulnerability highest?"`;
+  if (t.includes('summary') || t.includes('overview')) {
+    return `Layers: noise, buildings, sensors, heat vulnerability, traffic. Ask: "highest noise", "average traffic", "tallest building", "worst heat area".`;
   }
 
-  return `I didn't recognize the topic. Try asking about: noise, traffic speeds, building heights, heat vulnerability, or sensors.`;
+  return null;
+}
+
+function personaAdvice(ctx: Context) {
+  switch (ctx.persona) {
+    case 'health':
+      return 'Health mode: Prefer areas with lower noise and lower heat vulnerability.';
+    case 'investor':
+      return 'Investor mode: Favor areas with calmer traffic and moderate noise for schools/housing.';
+    default:
+      return 'Citizen mode: Explore cities, toggle layers, and draw a zone to focus analysis.';
+  }
 }
 
 export async function POST(req: NextRequest) {
   try {
     const { question, context } = (await req.json()) as { question: string; context: Context };
     if (!question || !context) return NextResponse.json({ answer: 'Missing question or context.' }, { status: 200 });
-    const answer = answerFromContext(question, context);
-    return NextResponse.json({ answer });
+
+    const base = baseAnswers(question, context);
+    if (base) return NextResponse.json({ answer: `${base}\n\n${personaAdvice(context)}` });
+
+    // Fallback generic
+    return NextResponse.json({
+      answer: `I didn't recognize the topic. Try noise, traffic speeds, building heights, heat vulnerability, or sensors.\n\n${personaAdvice(context)}`
+    });
   } catch (e: any) {
     return NextResponse.json({ answer: 'Server error: ' + e.message }, { status: 200 });
   }
