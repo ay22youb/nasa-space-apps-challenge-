@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "functions": {
+    "app/api/ask/route.ts": { "runtime": "edge" }
+  }
+}
