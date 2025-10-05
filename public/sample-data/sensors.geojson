@@ -1,0 +1,7 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "id": "sensor-1", "type": "noise", "reading": 72 }, "geometry": { "type": "Point", "coordinates": [-7.621, 33.5866] } },
+    { "type": "Feature", "properties": { "id": "sensor-2", "type": "temp", "reading": 31 }, "geometry": { "type": "Point", "coordinates": [-7.622, 33.586] } }
+  ]
+}
