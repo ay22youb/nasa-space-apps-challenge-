@@ -2,9 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { --bg: 14 14 18; --card: 24 24 32; --muted: 160 160 180; }
-body { background: rgb(var(--bg)); color: white; }
-.container { @apply max-w-5xl mx-auto px-4; }
-.card { background: rgb(var(--card)); @apply rounded-2xl shadow-xl; }
-.input { @apply w-full rounded-xl px-4 py-3 bg-black/40 border border-white/10 outline-none; }
-.btn { @apply rounded-xl px-5 py-3 font-medium border border-white/10 hover:bg-white/10 transition; }
+/* Theme helpers */
+:root {
+  --card: 255 255 255;
+  --card-dark: 24 24 32;
+}
+html, body { height: 100%; }
+
+body {
+  @apply antialiased;
+}
+
+/* Shared UI atoms */
+.container { @apply max-w-6xl mx-auto px-4; }
+
+.card {
+  @apply rounded-2xl shadow-xl;
+  background: rgb(var(--card));
+}
+.dark .card {
+  background: rgb(var(--card-dark));
+}
+
+.input {
+  @apply w-full rounded-xl px-4 py-3 bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 outline-none;
+}
+
+.btn {
+  @apply rounded-xl px-4 py-2 font-medium border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/10 transition;
+}
+
+/* Leaflet container fix inside rounded card */
+.leaflet-container {
+  border-radius: 0.75rem; /* match rounded-xl */
+}
+
+/* Scrollbars (subtle) */
+*::-webkit-scrollbar { height: 8px; width: 8px; }
+*::-webkit-scrollbar-thumb { background: #9aa1ac33; border-radius: 9999px; }
+*::-webkit-scrollbar-track { background: transparent; }
