@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, Building2, Car, Trees, ThermometerSun } from 'lucide-react';
+import { Search, Building2, Car, Trees, ThermometerSun, Star } from 'lucide-react';
 
 type Show = {
   noise: boolean;
@@ -13,6 +13,12 @@ type Show = {
 };
 
 type Persona = 'citizen' | 'health' | 'investor' | null;
+
+type CityScoreItem = {
+  name: 'Essaouira' | 'Rabat' | 'Marrakech' | 'Casablanca';
+  score: number;
+  recommended: boolean;
+};
 
 type Props = {
   // persona
@@ -38,6 +44,10 @@ type Props = {
   // snapshot
   healthScore: number | null;
   prevScore: number | null;
+
+  // city scores (mode-aware)
+  cityScores: CityScoreItem[];
+  onJumpToCity: (name: string) => void;
 };
 
 function gradeFromScore(score: number | null) {
@@ -53,7 +63,8 @@ export default function Controls({
   query, onQuery, onGoToCity,
   show, onToggle,
   intensity, onIntensity, onPlantTrees, onCalmTraffic, onReset,
-  healthScore, prevScore
+  healthScore, prevScore,
+  cityScores, onJumpToCity
 }: Props) {
 
   const [searching, setSearching] = useState(false);
@@ -89,6 +100,32 @@ export default function Controls({
         </div>
       </section>
 
+      {/* CITY SCORES (mode-aware) */}
+      <section>
+        <h3 className="font-semibold mb-2">City Scores (mode-aware)</h3>
+        <div className="space-y-2">
+          {cityScores.map((c) => {
+            const cg = gradeFromScore(c.score);
+            return (
+              <div key={c.name} className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {c.recommended && <Star size={14} className="text-amber-400" title="Recommended" />}
+                  <span className="text-sm font-medium">{c.name}</span>
+                  <span className={`text-[11px] px-2 py-1 rounded-md ${cg.color}`}>{c.score}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {c.recommended && <span className="text-[11px] text-emerald-500">★ Fav</span>}
+                  <button className="btn px-3 py-1 text-xs" onClick={() => onJumpToCity(c.name)}>Go</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="text-[11px] mt-1 opacity-70">
+          Citizen: balances heat & noise (Essaouira is favored ≥80). Health: prioritizes low heat. Investor: prioritizes calmer traffic.
+        </div>
+      </section>
+
       {/* HEALTH & AIR SNAPSHOT */}
       <section>
         <h3 className="font-semibold mb-2">Health & Air Snapshot</h3>
@@ -120,7 +157,7 @@ export default function Controls({
         </div>
 
         <div className="text-[11px] mt-1 opacity-70">
-          *Prototype heuristic: combines Noise (inverse air proxy) + Heat Vulnerability. Run simulations to see score change.
+          *Prototype heuristic: combines Noise (inverse air proxy) + Heat Vulnerability. Simulations will shift this.
         </div>
       </section>
 
@@ -130,7 +167,7 @@ export default function Controls({
         <div className="flex gap-2">
           <input
             className="input"
-            placeholder="Search city (Essaouira, Casablanca, …)"
+            placeholder="Search city (Essaouira, Rabat, Marrakech, Casablanca …)"
             value={query}
             onChange={(e) => onQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' ? go() : null}
@@ -165,29 +202,4 @@ export default function Controls({
             <input
               type="range" min={0} max={1} step={0.01}
               value={intensity}
-              onChange={(e) => onIntensity(parseFloat(e.target.value))}
-              className="w-full"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button className="btn" onClick={onPlantTrees}>🌳 Plant Trees</button>
-            <button className="btn" onClick={onCalmTraffic}>🚗 Calm Traffic</button>
-          </div>
-          <button className="btn" onClick={onReset}>Reset Simulation</button>
-        </div>
-      </section>
-
-      {/* Persona tips */}
-      {persona === 'health' && (
-        <div className="text-xs text-rose-400/90">
-          Tip: Focus on low <b>Noise</b> + low <b>Heat</b> areas. Use the heatmap and draw a zone.
-        </div>
-      )}
-      {persona === 'investor' && (
-        <div className="text-xs text-emerald-400/90">
-          Tip: Look for calmer <b>Traffic</b> and moderate <b>Noise</b> for schools/housing.
-        </div>
-      )}
-    </div>
-  );
-}
+              onChange={(e) => onIn
