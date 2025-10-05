@@ -1,0 +1,7 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "id": "bldg-1", "name": "Block A", "height_m": 24 }, "geometry": { "type": "Polygon", "coordinates": [[[-7.6208, 33.5865], [-7.6204, 33.5865], [-7.6204, 33.5861], [-7.6208, 33.5861], [-7.6208, 33.5865]]] } },
+    { "type": "Feature", "properties": { "id": "bldg-2", "name": "Block B", "height_m": 12 }, "geometry": { "type": "Polygon", "coordinates": [[[-7.6215, 33.5869], [-7.6211, 33.5869], [-7.6211, 33.5865], [-7.6215, 33.5865], [-7.6215, 33.5869]]] } }
+  ]
+}
