@@ -19,18 +19,21 @@ type Feature = {
   geometry: { type: string; coordinates: any };
 };
 type FeatureCollection = { type: 'FeatureCollection'; features: Feature[] };
+type Persona = 'citizen' | 'health' | 'investor' | null;
+type CityName = 'Essaouira' | 'Rabat' | 'Marrakech' | 'Casablanca';
 
 const PRESETS: Record<string, [number, number, number]> = {
   essaouira: [31.5085, -9.76, 13],
   casablanca: [33.5731, -7.5898, 12],
-  madrid: [40.4168, -3.7038, 12],
-  nyc: [40.7128, -74.006, 12],
+  madrid: [40.4168, -3.7038, 12], // still available
+  nyc: [40.7128, -74.006, 12],    // still available
+  rabat: [34.0209, -6.8416, 12],
+  marrakech: [31.6295, -7.9811, 12],
 };
 
-// ---- helpers for scoring ----------------------------------------------------
-const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+// ---------------------------------------------------------------------------
+// Health snapshot helpers (from existing data)
 const clamp100 = (n: number) => Math.max(0, Math.min(100, n));
-
 function avgNumeric(features: Feature[], propNames: string[]): number | null {
   const vals: number[] = [];
   for (const ft of features) {
@@ -43,25 +46,65 @@ function avgNumeric(features: Feature[], propNames: string[]): number | null {
   if (!vals.length) return null;
   return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
-
-/**
- * Health & Air Snapshot (0..100, higher = better)
- * Heuristic for the prototype:
- *  - Use Noise (properties.level) as an inverse air-quality proxy.
- *  - Use Heat Vulnerability (properties.score/index/level/value).
- *  - Combine: risk = 0.6*noise + 0.4*heat (both 0..100). score = 100 - risk.
- */
 function computeHealthScore(noise: FeatureCollection | null, heat: FeatureCollection | null): number | null {
   const noiseAvg = noise ? avgNumeric(noise.features, ['level', 'noise', 'value']) : null;
   const heatAvgRaw = heat ? avgNumeric(heat.features, ['score', 'index', 'level', 'value']) : null;
-
-  // Defaults if something is missing
   const noise0_100 = clamp100(noiseAvg ?? 50);
   const heat0_100 = clamp100(heatAvgRaw ?? 50);
-
   const risk = 0.6 * noise0_100 + 0.4 * heat0_100;
-  const score = Math.round(clamp100(100 - risk));
-  return score;
+  return Math.round(clamp100(100 - risk));
+}
+
+// ---------------------------------------------------------------------------
+// Mode-aware City Scores (synthetic baselines for demo)
+type CityBaseline = { noise: number; heat: number; traffic: number }; // 0..100 risk-like
+const CITY_BASELINE: Record<CityName, CityBaseline> = {
+  // tuned so Citizen mode gives Essaouira >= 80 (your request)
+  Essaouira:  { noise: 25, heat: 15, traffic: 20 },
+  Rabat:      { noise: 50, heat: 45, traffic: 45 },
+  Marrakech:  { noise: 55, heat: 80, traffic: 40 },
+  Casablanca: { noise: 75, heat: 60, traffic: 65 },
+};
+
+function scoreCity(b: CityBaseline, persona: Exclude<Persona, null> | 'citizen'): number {
+  let risk: number;
+  if (persona === 'health') {
+    // heavier weight on heat + some noise
+    risk = 0.6 * b.heat + 0.4 * b.noise;
+  } else if (persona === 'investor') {
+    // heavier weight on traffic + some noise
+    risk = 0.6 * b.traffic + 0.4 * b.noise;
+  } else {
+    // citizen: balanced between heat and noise
+    risk = 0.5 * b.heat + 0.5 * b.noise;
+  }
+  return Math.round(clamp100(100 - risk));
+}
+
+type CityScoreItem = { name: CityName; score: number; recommended: boolean };
+
+function computeModeAwareCityScores(persona: Persona): CityScoreItem[] {
+  const mode = (persona ?? 'citizen') as Exclude<Persona, null>;
+  const names: CityName[] = ['Essaouira', 'Rabat', 'Marrakech', 'Casablanca'];
+
+  // raw scoring
+  const items = names.map((name) => ({
+    name,
+    score: scoreCity(CITY_BASELINE[name], mode),
+    recommended: false,
+  }));
+
+  // Recommendation rule:
+  // - In citizen mode, if Essaouira >= 80 → force recommend Essaouira (your requirement).
+  // - Otherwise, recommend the top-scoring city.
+  // - For other modes, recommend the top-scoring city.
+  let recommendedName: CityName = items.reduce((a, b) => (a.score >= b.score ? a : b)).name;
+  if (mode === 'citizen') {
+    const essa = items.find((i) => i.name === 'Essaouira')!;
+    if (essa.score >= 80) recommendedName = 'Essaouira';
+  }
+
+  return items.map((i) => ({ ...i, recommended: i.name === recommendedName }));
 }
 
 export default function Page() {
@@ -95,7 +138,7 @@ export default function Page() {
   }, [dark]);
 
   // Persona (purpose)
-  const [persona, setPersona] = useState<'citizen' | 'health' | 'investor' | null>(null);
+  const [persona, setPersona] = useState<Persona>(null);
 
   // Health & Air Snapshot
   const [healthScore, setHealthScore] = useState<number | null>(null);
@@ -119,9 +162,12 @@ export default function Page() {
   // Recompute snapshot whenever inputs change
   useEffect(() => {
     const next = computeHealthScore(noise, heat);
-    setPrevScore((old) => (old === null ? next : old)); // keep the first as baseline
+    setPrevScore((old) => (old === null ? next : old)); // keep first as baseline
     setHealthScore(next);
   }, [noise, heat]);
+
+  // Mode-aware city scores
+  const cityScores = useMemo(() => computeModeAwareCityScores(persona), [persona]);
 
   // Assistant context
   const context = useMemo(() => ({
@@ -129,7 +175,8 @@ export default function Page() {
     summary: 'Prototype digital twin datasets (synthetic).',
     layers: { noise, buildings, sensors, heat, traffic },
     healthScore,
-  }), [persona, noise, buildings, sensors, heat, traffic, healthScore]);
+    cityScores,
+  }), [persona, noise, buildings, sensors, heat, traffic, healthScore, cityScores]);
 
   // Toggles
   const toggle = (k: keyof typeof show) => setShow((s) => ({ ...s, [k]: !s[k] }));
@@ -141,8 +188,7 @@ export default function Page() {
       ...ft,
       properties: {
         ...ft.properties,
-        // reduce noise level by up to 30% * intensity
-        level: Math.max(0, Number(ft.properties.level) * (1 - 0.3 * intensity)),
+        level: Math.max(0, Number(ft.properties.level) * (1 - 0.3 * intensity)), // up to -30% * intensity
       },
     }));
     setNoise({ ...noise, features: f });
@@ -156,6 +202,7 @@ export default function Page() {
       return { ...ft, properties: { ...ft.properties, speed_kmh: Math.max(5, Number(reduced.toFixed(1))) } };
     });
     setTraffic({ ...traffic, features: f });
+
     // Optional: tiny global noise benefit from calmer traffic
     if (noise) {
       const nf = noise.features.map((ft) => ({
@@ -211,8 +258,8 @@ export default function Page() {
       </header>
 
       <p className="text-black/70 dark:text-white/70 mt-1 mb-4 max-w-3xl">
-        Left sidebar: purpose selector, layers, simulations, and the new <b>Health & Air Snapshot</b>.
-        Right: full-width interactive map. Run a simulation and watch the score shift (e.g., <i>orange → yellow</i>).
+        Left sidebar: purpose, city scores (mode-aware), layers, simulations, and snapshot.
+        Right: full map. Run a simulation and watch scores and snapshot shift.
       </p>
 
       {/* Two-column layout: sticky sidebar + full map */}
@@ -236,9 +283,11 @@ export default function Page() {
             onPlantTrees={plantTrees}
             onCalmTraffic={calmTraffic}
             onReset={resetSim}
-            // snapshot
+            // snapshot + city scores
             healthScore={healthScore}
             prevScore={prevScore}
+            cityScores={cityScores}
+            onJumpToCity={(name) => goToCity(name)}
           />
 
           {/* Inline assistant (no overlay) */}
@@ -257,7 +306,6 @@ export default function Page() {
               show={show}
               intensity={intensity}
               onZoneDrawn={(poly) => {
-                // hook for future zone-specific scoring
                 console.log('Zone drawn:', poly);
               }}
             />
