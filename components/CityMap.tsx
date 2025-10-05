@@ -11,10 +11,15 @@ import {
   useMap
 } from "react-leaflet";
 import L, { LatLngExpression } from "leaflet";
-import "leaflet-draw";
+import "leaflet-draw"; // runtime plugin
+
 import HeatmapLayer from "./HeatmapLayer";
 
-type Feature = { type: 'Feature'; properties: Record<string, any>; geometry: { type: string; coordinates: any } };
+type Feature = {
+  type: 'Feature';
+  properties: Record<string, any>;
+  geometry: { type: string; coordinates: any }
+};
 type FeatureCollection = { type: 'FeatureCollection'; features: Feature[] };
 
 export type CityMapProps = {
@@ -42,6 +47,7 @@ function SetupIcons() {
   return null;
 }
 
+/** Add Leaflet.Draw controls; use string events to avoid TS missing types */
 function DrawControl({ onZoneDrawn }: { onZoneDrawn?: (polygon: any) => void }) {
   const map = useMap();
   const drawnRef = useRef<L.FeatureGroup | null>(null);
@@ -50,6 +56,7 @@ function DrawControl({ onZoneDrawn }: { onZoneDrawn?: (polygon: any) => void }) 
     drawnRef.current = new L.FeatureGroup();
     map.addLayer(drawnRef.current);
 
+    // Cast to any because @types/leaflet doesn't include Draw
     const drawControl = new (L as any).Control.Draw({
       draw: {
         polygon: true,
@@ -63,16 +70,18 @@ function DrawControl({ onZoneDrawn }: { onZoneDrawn?: (polygon: any) => void }) 
     });
     map.addControl(drawControl as any);
 
-    function created(e: any) {
+    const created = (e: any) => {
       const layer = e.layer as L.Polygon;
       drawnRef.current?.addLayer(layer);
       const gj = layer.toGeoJSON();
       onZoneDrawn?.(gj);
-    }
-    map.on(L.Draw.Event.CREATED, created);
+    };
+
+    // Use string event name from leaflet-draw to avoid typing L.Draw.Event.CREATED
+    map.on('draw:created' as any, created);
 
     return () => {
-      map.off(L.Draw.Event.CREATED, created);
+      map.off('draw:created' as any, created);
       try { map.removeControl(drawControl as any); } catch {}
       if (drawnRef.current) {
         try { map.removeLayer(drawnRef.current); } catch {}
@@ -102,7 +111,7 @@ export default function CityMap({ center, zoom, datasets, show, intensity, onZon
       if (!Array.isArray(ring) || ring.length < 3) return null;
       let x = 0, y = 0;
       for (const pt of ring) { x += pt[0]; y += pt[1]; }
-      return [y / ring.length, x / ring.length];
+      return [y / ring.length, x / ring.length]; // [lat, lng]
     };
 
     const pts: [number, number, number][] = [];
